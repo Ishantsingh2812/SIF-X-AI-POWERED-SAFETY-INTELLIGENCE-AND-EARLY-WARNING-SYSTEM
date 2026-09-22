@@ -1,0 +1,203 @@
+{
+  "precursor_classification": {
+    "accuracy": 0.8264,
+    "classes": [
+      "CAUGHT_IN_BETWEEN",
+      "CONFINED_SPACE_HAZMAT",
+      "ELECTRICAL_HAZARDOUS_ENERGY",
+      "FALL_FROM_HEIGHT",
+      "FIRE_EXPLOSION",
+      "OTHER",
+      "STRUCK_BY",
+      "VEHICLE_MOBILE_EQUIPMENT"
+    ],
+    "confusion_matrix": [
+      [
+        587,
+        1,
+        1,
+        1,
+        1,
+        20,
+        76,
+        13
+      ],
+      [
+        0,
+        155,
+        2,
+        3,
+        6,
+        11,
+        6,
+        4
+      ],
+      [
+        19,
+        0,
+        603,
+        19,
+        12,
+        9,
+        19,
+        19
+      ],
+      [
+        11,
+        2,
+        3,
+        599,
+        0,
+        32,
+        20,
+        33
+      ],
+      [
+        11,
+        0,
+        11,
+        16,
+        546,
+        6,
+        18,
+        12
+      ],
+      [
+        42,
+        2,
+        2,
+        39,
+        22,
+        530,
+        56,
+        7
+      ],
+      [
+        65,
+        1,
+        1,
+        15,
+        6,
+        43,
+        538,
+        31
+      ],
+      [
+        22,
+        3,
+        0,
+        14,
+        4,
+        28,
+        49,
+        580
+      ]
+    ],
+    "report": {
+      "CAUGHT_IN_BETWEEN": {
+        "precision": 0.7754293262879789,
+        "recall": 0.8385714285714285,
+        "f1-score": 0.8057652711050103,
+        "support": 700.0
+      },
+      "CONFINED_SPACE_HAZMAT": {
+        "precision": 0.9451219512195121,
+        "recall": 0.8288770053475936,
+        "f1-score": 0.8831908831908832,
+        "support": 187.0
+      },
+      "ELECTRICAL_HAZARDOUS_ENERGY": {
+        "precision": 0.9678972712680578,
+        "recall": 0.8614285714285714,
+        "f1-score": 0.9115646258503401,
+        "support": 700.0
+      },
+      "FALL_FROM_HEIGHT": {
+        "precision": 0.8484419263456091,
+        "recall": 0.8557142857142858,
+        "f1-score": 0.8520625889046942,
+        "support": 700.0
+      },
+      "FIRE_EXPLOSION": {
+        "precision": 0.914572864321608,
+        "recall": 0.8806451612903226,
+        "f1-score": 0.8972884141331142,
+        "support": 620.0
+      },
+      "OTHER": {
+        "precision": 0.780559646539028,
+        "recall": 0.7571428571428571,
+        "f1-score": 0.7686729514140682,
+        "support": 700.0
+      },
+      "STRUCK_BY": {
+        "precision": 0.6879795396419437,
+        "recall": 0.7685714285714286,
+        "f1-score": 0.7260458839406208,
+        "support": 700.0
+      },
+      "VEHICLE_MOBILE_EQUIPMENT": {
+        "precision": 0.8297567954220315,
+        "recall": 0.8285714285714286,
+        "f1-score": 0.8291636883488206,
+        "support": 700.0
+      },
+      "accuracy": 0.8264429798282404,
+      "macro avg": {
+        "precision": 0.8437199151307212,
+        "recall": 0.8274402708297395,
+        "f1-score": 0.834219288360944,
+        "support": 5007.0
+      },
+      "weighted avg": {
+        "precision": 0.832198548953605,
+        "recall": 0.8264429798282404,
+        "f1-score": 0.8281941319380296,
+        "support": 5007.0
+      }
+    }
+  },
+  "sif_detection": {
+    "accuracy": 0.9123,
+    "precision": 0.9016,
+    "recall": 0.9184,
+    "f1_score": 0.9099,
+    "confusion_matrix": [
+      [
+        2350,
+        242
+      ],
+      [
+        197,
+        2218
+      ]
+    ],
+    "report": {
+      "0": {
+        "precision": 0.922654102866117,
+        "recall": 0.9066358024691358,
+        "f1-score": 0.9145748200038918,
+        "support": 2592.0
+      },
+      "1": {
+        "precision": 0.9016260162601626,
+        "recall": 0.9184265010351967,
+        "f1-score": 0.9099487179487179,
+        "support": 2415.0
+      },
+      "accuracy": 0.9123227481525864,
+      "macro avg": {
+        "precision": 0.9121400595631398,
+        "recall": 0.9125311517521663,
+        "f1-score": 0.9122617689763048,
+        "support": 5007.0
+      },
+      "weighted avg": {
+        "precision": 0.9125117363485656,
+        "recall": 0.9123227481525864,
+        "f1-score": 0.9123435365081368,
+        "support": 5007.0
+      }
+    }
+  }
+}
