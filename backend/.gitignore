@@ -55,3 +55,8 @@ venv/
 # OS files
 .DS_Store
 Thumbs.db
+
+
+# Ignore Spring Boot config
+application.properties
+
