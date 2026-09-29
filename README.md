@@ -68,8 +68,19 @@ Instead of opaque black-box predictions, the AI service calculates:
 3. **Potential Consequences & Actions**: Prescribes verified Life-Saving Rule controls for the identified hazard.
 
 ---
+## 6. Project Structure 
 
-## 6. How to Run Locally
+SIF-X-AI-POWERED-SAFETY-INTELLIGENCE-AND-EARLY-WARNING-SYSTEM/
+│
+├── frontend/       # React + Vite user interface
+├── backend/        # Spring Boot REST API and database layer
+├── ai-service/     # Python FastAPI AI/NLP service
+├── README.md       # Project documentation
+└── .gitignore      # Git ignored files
+
+---
+
+## 7. How to Run Locally
 
 ### 1. Python AI Service (Port 8000)
 `ash
@@ -93,5 +104,5 @@ Open browser at: http://localhost:5173
 
 ---
 
-## 7. Decision Support Disclaimer
+## 8. Decision Support Disclaimer
 This system is an **early-warning and decision-support prototype**, NOT a system predicting guaranteed fatalities. All flagged precursor alerts require review by qualified HSE professionals.
