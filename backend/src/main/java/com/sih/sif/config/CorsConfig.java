@@ -1,38 +1,41 @@
 package com.sih.sif.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.util.Arrays;
+
 /**
  * CorsConfig.java
  *
  * Cross-Origin Resource Sharing (CORS) Configuration.
- *
- * In web development, browsers block web applications from making HTTP requests
- * to a different domain/port (e.g. React frontend on port 5173 calling Spring Boot on port 8080)
- * unless the server explicitly sends HTTP headers allowing it.
- *
- * This configuration registers a global CORS policy allowing requests from any origin
- * for all standard HTTP methods (GET, POST, etc.).
+ * Configures allowed origins dynamically from application properties,
+ * permitting secure cross-origin interaction from authorized frontends.
  */
 @Configuration
 public class CorsConfig {
+
+    @Value("${app.cors.allowed-origins:http://localhost:5173}")
+    private String allowedOrigins;
 
     @Bean
     public WebMvcConfigurer corsConfigurer() {
         return new WebMvcConfigurer() {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
-                // Apply this policy to all URL paths in the Spring Boot application
+                String[] origins = Arrays.stream(allowedOrigins.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toArray(String[]::new);
+
                 registry.addMapping("/**")
-                        // Allow requests coming from any client origin (including localhost:5173)
-                        .allowedOrigins("*")
-                        // Allow standard REST HTTP methods
+                        .allowedOrigins(origins)
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                        // Allow all custom and standard request headers
-                        .allowedHeaders("*");
+                        .allowedHeaders("Authorization", "Content-Type")
+                        .maxAge(3600);
             }
         };
     }

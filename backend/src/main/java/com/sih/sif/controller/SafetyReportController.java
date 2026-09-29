@@ -39,30 +39,30 @@ public class SafetyReportController {
      * and returns the comprehensive prediction breakdown.
      */
     @PostMapping("/reports/analyze")
-    public ResponseEntity<SafetyReportResponse> analyzeReport(@RequestBody AnalyzeReportRequest request) {
-        // Basic input validation: ensure narrative text is not null or blank
-        if (request.getReport() == null || request.getReport().trim().isEmpty()) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<SafetyReportResponse> analyzeReport(@jakarta.validation.Valid @RequestBody AnalyzeReportRequest request) {
         return ResponseEntity.ok(service.analyzeAndSave(request));
     }
 
     /**
      * Endpoint: GET /api/reports
-     * Retrieves all historically logged safety reports ordered from newest to oldest.
+     * Retrieves historically logged safety reports ordered from newest to oldest with pagination.
      */
     @GetMapping("/reports")
-    public ResponseEntity<List<SafetyReportResponse>> getAllReports() {
-        return ResponseEntity.ok(service.getAllReports());
+    public ResponseEntity<com.sih.sif.dto.PagedResponse<SafetyReportResponse>> getAllReports(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(service.getReportsPaged(page, size));
     }
 
     /**
      * Endpoint: GET /api/reports/high-risk
-     * Retrieves only reports that have been classified as HIGH or CRITICAL risk.
+     * Retrieves high and critical risk reports with pagination.
      */
     @GetMapping("/reports/high-risk")
-    public ResponseEntity<List<SafetyReportResponse>> getHighRiskReports() {
-        return ResponseEntity.ok(service.getHighRiskReports());
+    public ResponseEntity<com.sih.sif.dto.PagedResponse<SafetyReportResponse>> getHighRiskReports(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(service.getHighRiskReportsPaged(page, size));
     }
 
     /**

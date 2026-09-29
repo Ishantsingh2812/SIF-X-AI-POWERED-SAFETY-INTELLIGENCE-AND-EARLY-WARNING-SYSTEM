@@ -1,6 +1,8 @@
 package com.sih.sif.repository;
 
 import com.sih.sif.model.SafetyReport;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
@@ -9,26 +11,18 @@ import java.util.List;
 /**
  * SafetyReportRepository.java
  *
- * Spring Data JPA Repository interface for performing CRUD and query operations
- * on the 'safety_reports' table without writing raw SQL.
- *
- * Spring Data automatically generates the implementation at runtime by inspecting
- * the method names and deriving queries from them (Method Name Query Derivation).
+ * Spring Data MongoDB Repository interface for performing CRUD and query operations
+ * on the 'safety_reports' collection.
  */
 @Repository
 public interface SafetyReportRepository extends MongoRepository<SafetyReport, String> {
 
-    /**
-     * Finds reports matching any of the specified risk levels (e.g., ["CRITICAL", "HIGH"])
-     * ordered by newest first.
-     * Equivalent SQL: SELECT * FROM safety_reports WHERE risk_level IN (...) ORDER BY created_at DESC;
-     */
+    Page<SafetyReport> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    Page<SafetyReport> findByRiskLevelInOrderByCreatedAtDesc(List<String> riskLevels, Pageable pageable);
+
     List<SafetyReport> findByRiskLevelInOrderByCreatedAtDesc(List<String> riskLevels);
 
-    /**
-     * Retrieves all saved safety reports sorted by creation timestamp descending.
-     * Equivalent SQL: SELECT * FROM safety_reports ORDER BY created_at DESC;
-     */
     List<SafetyReport> findAllByOrderByCreatedAtDesc();
 
     /**

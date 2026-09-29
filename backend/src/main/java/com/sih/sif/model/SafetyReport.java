@@ -1,16 +1,23 @@
 package com.sih.sif.model;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * SafetyReport.java
  *
  * MongoDB Document representing a safety incident or observation report
  * stored in MongoDB Atlas in the 'safety_reports' collection.
+ * Stores list fields natively without JSON stringification.
  */
 @Document(collection = "safety_reports")
+@CompoundIndex(name = "idx_created_risk", def = "{'createdAt': -1, 'riskLevel': 1}")
 public class SafetyReport {
 
     /**
@@ -30,11 +37,11 @@ public class SafetyReport {
     private String riskLevel;
     private Double confidence;
 
-    private String detectedFactors;
-    private String potentialConsequences;
-    private String recommendedActions;
-    private String topTerms;
-    private String explanation;
+    private List<String> detectedFactors = new ArrayList<>();
+    private List<String> potentialConsequences = new ArrayList<>();
+    private List<String> recommendedActions = new ArrayList<>();
+    private List<Map<String, Object>> topTerms = new ArrayList<>();
+    private List<String> explanation = new ArrayList<>();
 
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -67,20 +74,20 @@ public class SafetyReport {
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
 
-    public String getDetectedFactors() { return detectedFactors; }
-    public void setDetectedFactors(String detectedFactors) { this.detectedFactors = detectedFactors; }
+    public List<String> getDetectedFactors() { return detectedFactors; }
+    public void setDetectedFactors(List<String> detectedFactors) { this.detectedFactors = detectedFactors; }
 
-    public String getPotentialConsequences() { return potentialConsequences; }
-    public void setPotentialConsequences(String potentialConsequences) { this.potentialConsequences = potentialConsequences; }
+    public List<String> getPotentialConsequences() { return potentialConsequences; }
+    public void setPotentialConsequences(List<String> potentialConsequences) { this.potentialConsequences = potentialConsequences; }
 
-    public String getRecommendedActions() { return recommendedActions; }
-    public void setRecommendedActions(String recommendedActions) { this.recommendedActions = recommendedActions; }
+    public List<String> getRecommendedActions() { return recommendedActions; }
+    public void setRecommendedActions(List<String> recommendedActions) { this.recommendedActions = recommendedActions; }
 
-    public String getTopTerms() { return topTerms; }
-    public void setTopTerms(String topTerms) { this.topTerms = topTerms; }
+    public List<Map<String, Object>> getTopTerms() { return topTerms; }
+    public void setTopTerms(List<Map<String, Object>> topTerms) { this.topTerms = topTerms; }
 
-    public String getExplanation() { return explanation; }
-    public void setExplanation(String explanation) { this.explanation = explanation; }
+    public List<String> getExplanation() { return explanation; }
+    public void setExplanation(List<String> explanation) { this.explanation = explanation; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

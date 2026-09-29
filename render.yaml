@@ -1,0 +1,65 @@
+services:
+  # Python FastAPI AI Inference Service
+  - type: web
+    name: sif-ai-service
+    env: python
+    rootDir: ai-service
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT main:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: AI_SERVICE_API_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: "*"
+
+  # Spring Boot 3 Backend Web Service (Docker runtime with Java 21)
+  - type: web
+    name: sif-backend
+    env: docker
+    dockerfilePath: Dockerfile
+    dockerContext: backend
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: MONGODB_URI
+        sync: false # Set via Render dashboard with MongoDB Atlas connection string
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: sif-ai-service
+          property: host
+      - key: AI_SERVICE_API_KEY
+        fromService:
+          type: web
+          name: sif-ai-service
+          envVarKey: AI_SERVICE_API_KEY
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false # Set to frontend URL once deployed, e.g. https://sif-frontend.onrender.com
+      - key: SEED_DEMO_DATA
+        value: "false"
+
+  # Static Frontend Site (React + Vite)
+  - type: web
+    name: sif-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: sif-backend
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

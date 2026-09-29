@@ -9,7 +9,8 @@ Role in Architecture:
   calibrated risk scores, active hazard factors, and interpretable word contributions.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -27,18 +28,36 @@ app = FastAPI(
     version='1.0.0'
 )
 
+# API key security scheme
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+EXPECTED_API_KEY = os.environ.get("AI_SERVICE_API_KEY", "")
+
+async def verify_api_key(api_key: Optional[str] = Security(api_key_header)):
+    # If AI_SERVICE_API_KEY is configured, enforce strict verification
+    if EXPECTED_API_KEY:
+        if not api_key or api_key != EXPECTED_API_KEY:
+            raise HTTPException(status_code=403, detail="Invalid or missing AI Service API Key")
+    return api_key
+
 # Configure Cross-Origin Resource Sharing (CORS)
-# Allows seamless communication from Spring Boot (port 8080) and React (port 5173)
+cors_origins_env = os.environ.get("ALLOWED_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=allowed_origins if allowed_origins else ["*"],
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 # Instantiate the Explainer once at startup to keep models in memory (avoids disk re-read per request)
-explainer = Explainer()
+explainer = None
+try:
+    explainer = Explainer()
+except Exception as e:
+    print(f"Warning: Explainer failed to load during startup: {e}")
 
 # --- Pydantic Data Validation Schemas ---
 
@@ -74,23 +93,27 @@ def health_check():
     """
     Health check endpoint for container orchestrators and backend ping verification.
     """
+    is_loaded = explainer is not None and getattr(explainer, 'cat_model', None) is not None
     return {
-        'status': 'HEALTHY',
+        'status': 'HEALTHY' if is_loaded else 'DEGRADED',
         'service': 'ai-nlp-sif-service',
-        'model_loaded': True,
+        'model_loaded': is_loaded,
         'framework': 'scikit-learn + TF-IDF'
     }
 
 @app.post('/predict', response_model=SIFPredictionResponse)
-def predict_sif(request: SafetyReportRequest):
+def predict_sif(request: SafetyReportRequest, _auth: Optional[str] = Depends(verify_api_key)):
     """
-    Primary inference endpoint.
+    Primary inference endpoint protected by optional shared secret key.
     
     Flow:
     1. Validates request body with Pydantic.
-    2. Runs text through the explainer pipeline.
-    3. Returns structured prediction, attribution factors, and risk scores.
+    2. Validates API key if configured.
+    3. Runs text through the explainer pipeline.
+    4. Returns structured prediction, attribution factors, and risk scores.
     """
+    if explainer is None:
+        raise HTTPException(status_code=503, detail="AI inference model is not loaded yet")
     try:
         result = explainer.explain_prediction(request.report)
         return result

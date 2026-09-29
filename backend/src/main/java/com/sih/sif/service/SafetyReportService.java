@@ -1,16 +1,27 @@
 package com.sih.sif.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sih.sif.dto.AnalyzeReportRequest;
 import com.sih.sif.dto.DashboardStatsResponse;
+import com.sih.sif.dto.PagedResponse;
 import com.sih.sif.dto.SafetyReportResponse;
+import com.sih.sif.exception.AiServiceUnavailableException;
 import com.sih.sif.model.SafetyReport;
 import com.sih.sif.repository.SafetyReportRepository;
-import jakarta.annotation.PostConstruct;
+import org.bson.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
@@ -22,45 +33,43 @@ import java.util.stream.Collectors;
  * Key Responsibilities:
  * 1. Orchestrates the integration between Spring Boot and the Python FastAPI AI service.
  * 2. Transmits safety reports to the Python NLP model over HTTP REST.
- * 3. Serializes and deserializes rich JSON payload attributes (factors, actions, explanations).
- * 4. Persists analysed reports to the embedded H2 SQL database via JPA.
- * 5. Computes live dashboard aggregations across all recorded incidents.
- * 6. Seeds realistic benchmark cases on initial application startup.
+ * 3. Stores rich attributes (factors, actions, explanations) as native MongoDB arrays/objects.
+ * 4. Persists analysed reports to MongoDB Atlas.
+ * 5. Computes live dashboard aggregations using Mongo pipelines.
+ * 6. Seeds demo benchmark cases asynchronously on application startup when enabled.
  */
 @Service
 public class SafetyReportService {
 
-    private final SafetyReportRepository repository;
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    private static final Logger log = LoggerFactory.getLogger(SafetyReportService.class);
 
-    // Injected AI service URL from application.properties, defaulting to localhost:8000
+    private final SafetyReportRepository repository;
+    private final MongoTemplate mongoTemplate;
+    private final RestTemplate restTemplate;
+
     @Value("${ai.service.url:http://127.0.0.1:8000}")
     private String aiServiceUrl;
 
-    /**
-     * Constructor injection for Spring Data repository and initialization of JSON and HTTP clients.
-     */
-    public SafetyReportService(SafetyReportRepository repository) {
+    @Value("${ai.service.api-key:}")
+    private String aiServiceApiKey;
+
+    @Value("${app.seed-demo-data:true}")
+    private boolean seedDemoData;
+
+    public SafetyReportService(SafetyReportRepository repository, MongoTemplate mongoTemplate, RestTemplate restTemplate) {
         this.repository = repository;
-        this.restTemplate = new RestTemplate();
-        this.objectMapper = new ObjectMapper();
+        this.mongoTemplate = mongoTemplate;
+        this.restTemplate = restTemplate;
     }
 
-    /**
-     * Primary business workflow:
-     * 1. Constructs an HTTP POST request targeting the Python FastAPI /predict endpoint.
-     * 2. Receives model-inferred SIF precursor, risk level, confidence, and explanations.
-     * 3. Maps and persists the safety incident into the H2 database.
-     * 4. Converts the persisted entity into a strongly-typed API response DTO.
-     */
     public SafetyReportResponse analyzeAndSave(AnalyzeReportRequest request) {
-        // Build the target endpoint URL
         String predictUrl = aiServiceUrl + "/predict";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        if (aiServiceApiKey != null && !aiServiceApiKey.isBlank()) {
+            headers.set("X-API-Key", aiServiceApiKey.trim());
+        }
 
-        // Prepare JSON request map for Python AI Service
         Map<String, Object> aiReq = new HashMap<>();
         aiReq.put("report", request.getReport());
         aiReq.put("report_type", request.getReportType());
@@ -68,50 +77,101 @@ public class SafetyReportService {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(aiReq, headers);
         
-        // Execute synchronous HTTP call to Python AI engine
-        ResponseEntity<Map> aiResponse = restTemplate.postForEntity(predictUrl, entity, Map.class);
-        Map<String, Object> body = aiResponse.getBody();
-
-        if (body == null) {
-            throw new RuntimeException("Empty response received from Python AI Service");
+        Map<String, Object> body;
+        try {
+            ResponseEntity<Map> aiResponse = restTemplate.postForEntity(predictUrl, entity, Map.class);
+            body = aiResponse.getBody();
+        } catch (ResourceAccessException e) {
+            log.error("Timeout or connection failure connecting to AI service at {}: {}", predictUrl, e.getMessage());
+            throw new AiServiceUnavailableException("AI service is currently unavailable or timed out. Please retry in a moment.", e);
+        } catch (HttpStatusCodeException e) {
+            log.error("AI service returned HTTP error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new AiServiceUnavailableException("AI service returned error: " + e.getStatusCode(), e);
+        } catch (Exception e) {
+            log.error("Unexpected error calling AI service: {}", e.getMessage(), e);
+            throw new AiServiceUnavailableException("Failed to communicate with AI inference engine.", e);
         }
 
-        // Instantiate new entity and populate with report metadata
+        if (body == null) {
+            log.error("Empty response body received from AI service at {}", predictUrl);
+            throw new AiServiceUnavailableException("Empty response received from AI Service");
+        }
+
         SafetyReport report = new SafetyReport();
         report.setReportText(request.getReport());
         report.setReportType(request.getReportType());
         report.setLocation(request.getLocation());
 
-        // Extract ML classification outputs
-        report.setSifPrecursorDetected((Boolean) body.get("sif_precursor_detected"));
-        report.setPrecursorType((String) body.get("precursor_type"));
+        Object precursorDetectedObj = body.get("sif_precursor_detected");
+        report.setSifPrecursorDetected(precursorDetectedObj instanceof Boolean ? (Boolean) precursorDetectedObj : Boolean.FALSE);
+
+        Object precursorTypeObj = body.get("precursor_type");
+        report.setPrecursorType(precursorTypeObj != null ? String.valueOf(precursorTypeObj) : "OTHER");
         
         Object riskScoreObj = body.get("risk_score");
         report.setRiskScore(riskScoreObj instanceof Number ? ((Number) riskScoreObj).doubleValue() : 0.0);
-        report.setRiskLevel((String) body.get("risk_level"));
+
+        Object riskLevelObj = body.get("risk_level");
+        report.setRiskLevel(riskLevelObj != null ? String.valueOf(riskLevelObj) : "LOW");
         
         Object confObj = body.get("confidence");
         report.setConfidence(confObj instanceof Number ? ((Number) confObj).doubleValue() : 0.0);
 
-        // Convert rich lists/maps to JSON strings for database column storage
-        try {
-            report.setDetectedFactors(objectMapper.writeValueAsString(body.get("detected_factors")));
-            report.setPotentialConsequences(objectMapper.writeValueAsString(body.get("potential_consequences")));
-            report.setRecommendedActions(objectMapper.writeValueAsString(body.get("recommended_actions")));
-            report.setTopTerms(objectMapper.writeValueAsString(body.get("top_terms")));
-            report.setExplanation(objectMapper.writeValueAsString(body.get("explanation")));
-        } catch (Exception e) {
-            // Silently maintain existing string fields if serialization encounters an issue
+        // Store lists natively in MongoDB
+        if (body.get("detected_factors") instanceof List) {
+            report.setDetectedFactors(((List<?>) body.get("detected_factors")).stream().map(String::valueOf).collect(Collectors.toList()));
+        }
+        if (body.get("potential_consequences") instanceof List) {
+            report.setPotentialConsequences(((List<?>) body.get("potential_consequences")).stream().map(String::valueOf).collect(Collectors.toList()));
+        }
+        if (body.get("recommended_actions") instanceof List) {
+            report.setRecommendedActions(((List<?>) body.get("recommended_actions")).stream().map(String::valueOf).collect(Collectors.toList()));
+        }
+        if (body.get("top_terms") instanceof List) {
+            List<Map<String, Object>> termList = new ArrayList<>();
+            for (Object item : (List<?>) body.get("top_terms")) {
+                if (item instanceof Map) {
+                    termList.add((Map<String, Object>) item);
+                }
+            }
+            report.setTopTerms(termList);
+        }
+        if (body.get("explanation") instanceof List) {
+            report.setExplanation(((List<?>) body.get("explanation")).stream().map(String::valueOf).collect(Collectors.toList()));
         }
 
-        // Persist to relational database
         SafetyReport saved = repository.save(report);
-        return mapToResponse(saved, (String) body.get("decision_support_disclaimer"));
+        Object disclaimerObj = body.get("decision_support_disclaimer");
+        String disclaimer = disclaimerObj != null ? String.valueOf(disclaimerObj) : null;
+        return mapToResponse(saved, disclaimer);
     }
 
-    /**
-     * Fetches all safety reports from database in reverse chronological order.
-     */
+    public PagedResponse<SafetyReportResponse> getReportsPaged(int page, int size) {
+        int clampedSize = Math.max(1, Math.min(size, 100));
+        int validPage = Math.max(0, page);
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(validPage, clampedSize);
+        org.springframework.data.domain.Page<SafetyReport> paged = repository.findAllByOrderByCreatedAtDesc(pageable);
+
+        List<SafetyReportResponse> items = paged.getContent().stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+
+        return new PagedResponse<>(items, paged.getNumber(), paged.getSize(), paged.getTotalElements(), paged.getTotalPages());
+    }
+
+    public PagedResponse<SafetyReportResponse> getHighRiskReportsPaged(int page, int size) {
+        int clampedSize = Math.max(1, Math.min(size, 100));
+        int validPage = Math.max(0, page);
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(validPage, clampedSize);
+        org.springframework.data.domain.Page<SafetyReport> paged = repository.findByRiskLevelInOrderByCreatedAtDesc(Arrays.asList("HIGH", "CRITICAL"), pageable);
+
+        List<SafetyReportResponse> items = paged.getContent().stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+
+        return new PagedResponse<>(items, paged.getNumber(), paged.getSize(), paged.getTotalElements(), paged.getTotalPages());
+    }
+
     public List<SafetyReportResponse> getAllReports() {
         return repository.findAllByOrderByCreatedAtDesc()
                 .stream()
@@ -119,9 +179,6 @@ public class SafetyReportService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Filters for HIGH and CRITICAL risk reports for expedited safety intervention.
-     */
     public List<SafetyReportResponse> getHighRiskReports() {
         return repository.findByRiskLevelInOrderByCreatedAtDesc(Arrays.asList("HIGH", "CRITICAL"))
                 .stream()
@@ -130,8 +187,7 @@ public class SafetyReportService {
     }
 
     /**
-     * Aggregates real-time statistics for the management overview dashboard.
-     * Computes totals, positive SIF counts, category distribution, and risk breakdown.
+     * Aggregates real-time statistics using MongoDB Aggregation pipelines ($match, $group).
      */
     public DashboardStatsResponse getDashboardStats() {
         DashboardStatsResponse stats = new DashboardStatsResponse();
@@ -145,17 +201,36 @@ public class SafetyReportService {
         stats.setHighRiskReports(high);
         stats.setCriticalReports(crit);
 
-        // Compute precursor distribution using Java Streams grouping
-        List<SafetyReport> all = repository.findAll();
-        Map<String, Long> precDist = all.stream()
-                .filter(r -> r.getPrecursorType() != null)
-                .collect(Collectors.groupingBy(SafetyReport::getPrecursorType, Collectors.counting()));
+        // Precursor distribution aggregation: $match non-null precursorType -> $group by precursorType with $sum
+        Aggregation precursorAgg = Aggregation.newAggregation(
+                Aggregation.match(Criteria.where("precursorType").ne(null).ne("")),
+                Aggregation.group("precursorType").count().as("count")
+        );
+        AggregationResults<Document> precursorResults = mongoTemplate.aggregate(precursorAgg, "safety_reports", Document.class);
+        Map<String, Long> precDist = new HashMap<>();
+        for (Document doc : precursorResults.getMappedResults()) {
+            String key = doc.getString("_id");
+            Number countNum = doc.get("count", Number.class);
+            if (key != null && countNum != null) {
+                precDist.put(key, countNum.longValue());
+            }
+        }
         stats.setPrecursorDistribution(precDist);
 
-        // Compute risk level breakdown
-        Map<String, Long> riskDist = all.stream()
-                .filter(r -> r.getRiskLevel() != null)
-                .collect(Collectors.groupingBy(SafetyReport::getRiskLevel, Collectors.counting()));
+        // Risk distribution aggregation: $match non-null riskLevel -> $group by riskLevel with $sum
+        Aggregation riskAgg = Aggregation.newAggregation(
+                Aggregation.match(Criteria.where("riskLevel").ne(null).ne("")),
+                Aggregation.group("riskLevel").count().as("count")
+        );
+        AggregationResults<Document> riskResults = mongoTemplate.aggregate(riskAgg, "safety_reports", Document.class);
+        Map<String, Long> riskDist = new HashMap<>();
+        for (Document doc : riskResults.getMappedResults()) {
+            String key = doc.getString("_id");
+            Number countNum = doc.get("count", Number.class);
+            if (key != null && countNum != null) {
+                riskDist.put(key, countNum.longValue());
+            }
+        }
         stats.setRiskDistribution(riskDist);
 
         return stats;
@@ -165,10 +240,6 @@ public class SafetyReportService {
         return mapToResponse(report, "Prototype Decision Support: Requires safety officer review.");
     }
 
-    /**
-     * Helper mapper that converts a JPA Entity to an API Response DTO
-     * and deserializes internal JSON strings back into structured collections.
-     */
     private SafetyReportResponse mapToResponse(SafetyReport report, String disclaimer) {
         SafetyReportResponse resp = new SafetyReportResponse();
         resp.setId(report.getId());
@@ -183,68 +254,56 @@ public class SafetyReportService {
         resp.setCreatedAt(report.getCreatedAt());
         resp.setDecisionSupportDisclaimer(disclaimer);
 
-        // Parse JSON strings back into strongly-typed Java Collections for JSON serialization
-        try {
-            if (report.getDetectedFactors() != null) {
-                resp.setDetectedFactors(objectMapper.readValue(report.getDetectedFactors(), new TypeReference<List<String>>() {}));
-            }
-            if (report.getPotentialConsequences() != null) {
-                resp.setPotentialConsequences(objectMapper.readValue(report.getPotentialConsequences(), new TypeReference<List<String>>() {}));
-            }
-            if (report.getRecommendedActions() != null) {
-                resp.setRecommendedActions(objectMapper.readValue(report.getRecommendedActions(), new TypeReference<List<String>>() {}));
-            }
-            if (report.getTopTerms() != null) {
-                resp.setTopTerms(objectMapper.readValue(report.getTopTerms(), new TypeReference<List<Map<String, Object>>>() {}));
-            }
-            if (report.getExplanation() != null) {
-                resp.setExplanation(objectMapper.readValue(report.getExplanation(), new TypeReference<List<String>>() {}));
-            }
-        } catch (Exception e) {
-            // Lists remain empty if JSON parsing fails
-        }
+        resp.setDetectedFactors(report.getDetectedFactors() != null ? report.getDetectedFactors() : new ArrayList<>());
+        resp.setPotentialConsequences(report.getPotentialConsequences() != null ? report.getPotentialConsequences() : new ArrayList<>());
+        resp.setRecommendedActions(report.getRecommendedActions() != null ? report.getRecommendedActions() : new ArrayList<>());
+        resp.setTopTerms(report.getTopTerms() != null ? report.getTopTerms() : new ArrayList<>());
+        resp.setExplanation(report.getExplanation() != null ? report.getExplanation() : new ArrayList<>());
 
         return resp;
     }
 
     /**
-     * Pre-populates the in-memory database on application startup.
-     * Ensures judges immediately see rich analytics and test data upon launching the dashboard.
+     * Seeds initial demo data asynchronously on ApplicationReadyEvent.
+     * Prevents startup delays when the AI service is warming up or slow.
+     * Gated by app.seed-demo-data (SEED_DEMO_DATA env var).
      */
-    @PostConstruct
+    @Async
+    @EventListener(ApplicationReadyEvent.class)
     public void seedInitialDemoData() {
+        if (!seedDemoData) {
+            log.info("Demo data seeding is disabled via configuration (app.seed-demo-data=false)");
+            return;
+        }
+
         if (repository.count() == 0) {
+            log.info("Starting asynchronous initial demo data seeding...");
             List<AnalyzeReportRequest> seedCases = new ArrayList<>();
 
-            // Case 1: Fall from Height
             AnalyzeReportRequest c1 = new AnalyzeReportRequest();
             c1.setReport("Worker fell 15 feet from an unsecured ladder without harness while painting exterior tank shell.");
             c1.setReportType("Unsafe Act / Condition");
             c1.setLocation("OIL Rig Alpha, Duliajan");
             seedCases.add(c1);
 
-            // Case 2: Electrical Hazard
             AnalyzeReportRequest c2 = new AnalyzeReportRequest();
             c2.setReport("Electrician was working on an energized 480V breaker panel without lockout tagout or voltage testing.");
             c2.setReportType("Unsafe Act");
             c2.setLocation("Gas Compression Plant 2, Moran");
             seedCases.add(c2);
 
-            // Case 3: Confined Space & Toxic Atmosphere
             AnalyzeReportRequest c3 = new AnalyzeReportRequest();
             c3.setReport("Two workers entered crude oil storage tank for cleaning without atmospheric gas testing or ventilation.");
             c3.setReportType("Unsafe Condition");
             c3.setLocation("Crude Tank Farm, Digboi");
             seedCases.add(c3);
 
-            // Case 4: Minor Housekeeping (Low Risk Control)
             AnalyzeReportRequest c4 = new AnalyzeReportRequest();
             c4.setReport("Trash and empty cardboard boxes left in hallway near office doorway obstructing walkway.");
             c4.setReportType("Near Miss");
             c4.setLocation("Administrative Building, Guwahati");
             seedCases.add(c4);
 
-            // Case 5: Vehicle & Pedestrian Interaction
             AnalyzeReportRequest c5 = new AnalyzeReportRequest();
             c5.setReport("Forklift operator was driving in reverse with obstructed view and nearly collided with a pedestrian worker.");
             c5.setReportType("Near Miss");
@@ -255,9 +314,10 @@ public class SafetyReportService {
                 try {
                     analyzeAndSave(req);
                 } catch (Exception e) {
-                    System.err.println("Seed notice (AI service might still be warming up): " + e.getMessage());
+                    log.info("Seed notice (AI service might still be warming up): {}", e.getMessage());
                 }
             }
+            log.info("Completed asynchronous demo data seeding check.");
         }
     }
 }

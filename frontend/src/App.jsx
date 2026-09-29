@@ -25,7 +25,8 @@ import {
 } from 'recharts';
 
 // Base URL for the Spring Boot REST API
-const API_BASE = 'http://localhost:8080/api';
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const API_BASE = (RAW_API_BASE.endsWith('/') ? RAW_API_BASE.slice(0, -1) : RAW_API_BASE) + '/api';
 
 /**
  * Pre-configured realistic benchmark cases representing diverse oil & gas field scenarios.
@@ -62,14 +63,34 @@ const PRESET_CASES = [
 const COLORS = ['#ef4444', '#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#06b6d4', '#ec4899', '#6b7280'];
 
 export default function App() {
+  // Authentication state
+  const [token, setToken] = useState(() => sessionStorage.getItem('token') || '');
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Login form state
+  const [loginUsername, setLoginUsername] = useState('admin');
+  const [loginPassword, setLoginPassword] = useState('Admin@123');
+  const [loginError, setLoginError] = useState(null);
+  const [loginLoading, setLoginLoading] = useState(false);
+
   // Navigation tab state: 'dashboard', 'analyze', or 'result'
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const isFieldWorker = currentUser?.role === 'ROLE_FIELD_WORKER';
+  const [activeTab, setActiveTab] = useState(isFieldWorker ? 'analyze' : 'dashboard');
 
   // Operational metrics state (total reports, SIF counts, risk distributions)
   const [stats, setStats] = useState(null);
 
   // List of historical safety reports retrieved from the database
   const [recentReports, setRecentReports] = useState([]);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
   // Form input state for analyzing a new incident
@@ -82,25 +103,95 @@ export default function App() {
   const [currentResult, setCurrentResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  const handleLogout = () => {
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    setToken('');
+    setCurrentUser(null);
+    setCurrentResult(null);
+    setStats(null);
+  };
+
   /**
-   * React Lifecycle Hook: runs once when the component mounts.
-   * Loads initial dashboard metrics and previous reports from the backend.
+   * Wrapper around fetch that adds the JWT Authorization header,
+   * handles 401 Unauthenticated by clearing session, and handles 429 Too Many Requests.
+   */
+  const authFetch = async (url, options = {}) => {
+    const headers = {
+      ...(options.headers || {}),
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) {
+      handleLogout();
+      throw new Error('Session expired or unauthorized. Please log in again.');
+    }
+    return res;
+  };
+
+  const handleLogin = async (e) => {
+    if (e) e.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+
+    try {
+      const res = await fetch(API_BASE + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginUsername, password: loginPassword })
+      });
+
+      if (!res.ok) {
+        let errMessage = 'Invalid credentials';
+        try {
+          const errData = await res.json();
+          if (errData && errData.message) errMessage = errData.message;
+        } catch (_) {}
+        throw new Error(errMessage);
+      }
+
+      const data = await res.json();
+      sessionStorage.setItem('token', data.token);
+      sessionStorage.setItem('user', JSON.stringify({ username: data.username, role: data.role }));
+      setToken(data.token);
+      setCurrentUser({ username: data.username, role: data.role });
+      if (data.role === 'ROLE_FIELD_WORKER') {
+        setActiveTab('analyze');
+      } else {
+        setActiveTab('dashboard');
+      }
+    } catch (err) {
+      setLoginError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  /**
+   * React Lifecycle Hook: runs when token or currentPage changes.
+   * Loads initial dashboard metrics and previous reports from the backend if authorized.
    */
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    if (token && currentUser?.role !== 'ROLE_FIELD_WORKER') {
+      fetchDashboardData(currentPage);
+    }
+  }, [token, currentPage, currentUser?.role]);
 
   /**
    * Fetches the current operational statistics and recent reports concurrently
    * using Promise.all to minimize latency on dashboard load or refresh.
    */
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (page = 0) => {
+    if (!token) return;
     setLoadingDashboard(true);
     try {
-      // Execute both backend REST calls in parallel
+      // Execute both backend REST calls in parallel with JWT
       const [statsRes, reportsRes] = await Promise.all([
-        fetch(API_BASE + '/dashboard/stats'),
-        fetch(API_BASE + '/reports')
+        authFetch(API_BASE + '/dashboard/stats'),
+        authFetch(API_BASE + `/reports?page=${page}&size=10`)
       ]);
       if (statsRes.ok) {
         const statsData = await statsRes.json();
@@ -108,7 +199,14 @@ export default function App() {
       }
       if (reportsRes.ok) {
         const reportsData = await reportsRes.json();
-        setRecentReports(reportsData);
+        // Support both paginated {content: [...], totalPages: N} and plain list responses
+        if (reportsData && Array.isArray(reportsData.content)) {
+          setRecentReports(reportsData.content);
+          setTotalPages(reportsData.totalPages || 1);
+        } else if (Array.isArray(reportsData)) {
+          setRecentReports(reportsData);
+          setTotalPages(1);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
@@ -129,7 +227,7 @@ export default function App() {
     setErrorMsg(null);
 
     try {
-      const res = await fetch(API_BASE + '/reports/analyze', {
+      const res = await authFetch(API_BASE + '/reports/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -140,15 +238,33 @@ export default function App() {
       });
 
       if (!res.ok) {
-        throw new Error('Analysis request failed from backend.');
+        if (res.status === 429) {
+          setErrorMsg('Rate limit exceeded: Too many requests. Please wait a minute before analyzing again.');
+          return;
+        }
+        if (res.status === 503) {
+          setErrorMsg('The AI service is starting up or unavailable. Please retry in a moment.');
+          return;
+        }
+        let errDetail = 'Analysis request failed from backend.';
+        try {
+          const errData = await res.json();
+          if (errData && errData.message) errDetail = errData.message;
+        } catch (_) {}
+        throw new Error(errDetail);
       }
 
       const data = await res.json();
       setCurrentResult(data);
+      setCurrentPage(0);
       setActiveTab('result'); // Automatically navigate to explainability view
-      fetchDashboardData();   // Refresh dashboard KPIs in background
+      if (currentUser?.role !== 'ROLE_FIELD_WORKER') {
+        fetchDashboardData(0);   // Refresh dashboard KPIs in background
+      }
     } catch (err) {
-      setErrorMsg('Failed to connect to backend AI pipeline. Ensure Spring Boot and FastAPI are running.');
+      if (!errorMsg) {
+        setErrorMsg(err.message || 'Failed to analyze report. Please try again.');
+      }
       console.error(err);
     } finally {
       setAnalyzing(false);
@@ -198,36 +314,119 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="flex items-center space-x-2">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={'px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center space-x-1.5 ' + (activeTab === 'dashboard' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-white')}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Dashboard</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('analyze')}
-              className={'px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center space-x-1.5 ' + (activeTab === 'analyze' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-white')}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Analyze Report</span>
-            </button>
-            {currentResult && (
-              <button
-                onClick={() => setActiveTab('result')}
-                className={'px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center space-x-1.5 ' + (activeTab === 'result' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-white')}
-              >
-                <Activity className="w-4 h-4" />
-                <span>Result & Explainability</span>
-              </button>
+          <div className="flex items-center space-x-3">
+            {token && (
+              <nav className="flex items-center space-x-2">
+                {!isFieldWorker && (
+                  <button
+                    onClick={() => setActiveTab('dashboard')}
+                    className={'px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center space-x-1.5 ' + (activeTab === 'dashboard' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-white')}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    <span>Dashboard</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setActiveTab('analyze')}
+                  className={'px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center space-x-1.5 ' + (activeTab === 'analyze' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-white')}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Analyze Report</span>
+                </button>
+                {currentResult && (
+                  <button
+                    onClick={() => setActiveTab('result')}
+                    className={'px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center space-x-1.5 ' + (activeTab === 'result' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'text-slate-400 hover:text-white')}
+                  >
+                    <Activity className="w-4 h-4" />
+                    <span>Result & Explainability</span>
+                  </button>
+                )}
+              </nav>
             )}
-          </nav>
+
+            {currentUser && (
+              <div className="flex items-center pl-3 space-x-3 border-l border-slate-800">
+                <div className="text-right">
+                  <div className="text-xs font-semibold text-slate-200">{currentUser.username}</div>
+                  <div className="text-[10px] text-amber-400 font-mono">
+                    {currentUser.role.replace('ROLE_', '')}
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-red-950/40 hover:text-red-400 text-slate-400 rounded border border-slate-700 hover:border-red-800 transition"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
-        {activeTab === 'dashboard' && (
+        {!token ? (
+          <div className="max-w-md mx-auto mt-12 p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                <HardHat className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white">System Authentication</h2>
+                <p className="text-xs text-slate-400">Log in to OIL SIF-Lens AI Platform</p>
+              </div>
+            </div>
+
+            {loginError && (
+              <div className="mb-4 p-3 bg-red-950/50 border border-red-800 rounded-lg text-xs text-red-300">
+                {loginError}
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Username</label>
+                <input
+                  type="text"
+                  required
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-amber-500"
+                  placeholder="admin"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-amber-500"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-sm transition shadow-lg shadow-amber-500/10"
+              >
+                {loginLoading ? 'Authenticating...' : 'Sign In'}
+              </button>
+            </form>
+
+            <div className="mt-6 pt-4 border-t border-slate-800 text-[11px] text-slate-500 space-y-1">
+              <div className="font-semibold text-slate-400">Default Credentials:</div>
+              <div>Admin: <span className="font-mono text-slate-300">admin / Admin@123</span></div>
+              <div>Field Worker: <span className="font-mono text-slate-300">worker / Worker@123</span></div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'dashboard' && !isFieldWorker && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
@@ -253,7 +452,7 @@ export default function App() {
                 <div className="mt-2 text-2xl font-black text-white">
                   {stats ? stats.totalReports : '...'}
                 </div>
-                <div className="mt-1 text-xs text-slate-400">Logged in H2 database</div>
+                <div className="mt-1 text-xs text-slate-400">Stored in database</div>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
@@ -373,7 +572,9 @@ export default function App() {
                   <tbody className="divide-y divide-slate-800">
                     {recentReports.map((report) => (
                       <tr key={report.id} className="hover:bg-slate-800/40 transition">
-                        <td className="py-3 px-3 font-mono text-slate-400">#{report.id}</td>
+                        <td className="py-3 px-3 font-mono text-slate-400">
+                          #{report.id ? String(report.id).slice(-6) : ''}
+                        </td>
                         <td className="py-3 px-3 text-slate-200 max-w-sm truncate" title={report.reportText}>
                           {report.reportText}
                         </td>
@@ -407,6 +608,30 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-3 py-3 border-t border-slate-800 text-xs text-slate-400">
+                  <div>
+                    Page <span className="text-white font-semibold">{currentPage + 1}</span> of <span className="text-white font-semibold">{totalPages}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                      disabled={currentPage === 0}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded border border-slate-700 transition"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages - 1, p + 1))}
+                      disabled={currentPage >= totalPages - 1}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded border border-slate-700 transition"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -677,6 +902,8 @@ export default function App() {
               </button>
             </div>
           </div>
+        )}
+          </>
         )}
       </main>
 

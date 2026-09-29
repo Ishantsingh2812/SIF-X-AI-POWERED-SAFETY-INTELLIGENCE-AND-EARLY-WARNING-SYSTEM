@@ -1,10 +1,10 @@
-﻿# AI/NLP Engine to Detect Serious Injury & Fatality (SIF) Precursors in Safety Reports
+# AI/NLP Engine to Detect Serious Injury & Fatality (SIF) Precursors in Safety Reports
 
 **Smart India Hackathon (SIH) – Software Edition Prototype**
 
 ## 1. Problem Statement
 
-**\"AI/NLP Engine to Detect Serious Injury & Fatality (SIF) Precursors in OIL's Unsafe-Act/Unsafe-Condition and Near-Miss Reports.\"**
+**"AI/NLP Engine to Detect Serious Injury & Fatality (SIF) Precursors in OIL's Unsafe-Act/Unsafe-Condition and Near-Miss Reports."**
 
 In industrial energy operations (oil exploration, drilling, refining, and gas compression), traditional safety reporting often drowns safety officers in minor observations while failing to highlight low-frequency, high-consequence events that precede fatal incidents. This prototype delivers an automated early-warning and decision-support NLP engine to detect SIF precursors, classify them into standardized Life-Saving Rules categories, calibrate risk levels, and provide transparent model-derived explanations.
 
@@ -12,17 +12,17 @@ In industrial energy operations (oil exploration, drilling, refining, and gas co
 
 ## 2. End-to-End System Architecture
 
-`mermaid
+```mermaid
 graph TD
-    UI[React 18 + Vite Frontend Port 5173] -->|HTTP REST| SB[Spring Boot 3 Backend Port 8080]
+    UI[React 19 + Vite Frontend Port 5173] -->|HTTP REST| SB[Spring Boot 3 Backend Port 8080]
     SB -->|HTTP JSON /predict| AI[Python FastAPI AI Service Port 8000]
     AI -->|Feature Extraction| TFIDF[TF-IDF N-gram Vectorizer]
     TFIDF -->|Multiclass Inference| LR1[Multiclass Precursor Classifier]
     TFIDF -->|High-Recall Binary Inference| LR2[SIF Detection Classifier]
     AI -->|Explainability Engine| EXP[TF-IDF Coefficients & Hazard Attribution]
-    SB -->|JPA Persistence| DB[(H2 In-Memory Database)]
+    SB -->|MongoDB Driver| DB[(MongoDB Atlas Cloud / Local Mongo 7)]
     SB -->|Aggregated Analytics| UI
-`
+```
 
 ---
 
@@ -36,11 +36,8 @@ graph TD
 ---
 
 ## 4. Machine Learning Methodology & Actual Evaluation
-* **Text Cleaning**: Custom tokenizer preserving critical safety negation and condition tokens (without, 
-o, 
-ot, 
-ever, unprotected, missing).
-* **Feature Extraction**: TF-IDF vectorizer (unigrams + bigrams, sublinear TF scaling, 15,000 features).
+* **Text Cleaning**: Custom tokenizer preserving critical safety negation and condition tokens (without, no, not, never, unprotected, missing).
+* **Feature Extraction**: TF-IDF vectorizer (unigrams + bigrams, sublinear TF scaling, 12,000 features).
 * **Models**:
   1. Multiclass Precursor Classifier: Logistic Regression (L-BFGS, balanced class weights).
   2. Binary SIF Classifier: Logistic Regression with high-recall class weighting ({0: 1.0, 1: 1.8}) to prioritize recall and minimize dangerous false negatives.
@@ -68,41 +65,67 @@ Instead of opaque black-box predictions, the AI service calculates:
 3. **Potential Consequences & Actions**: Prescribes verified Life-Saving Rule controls for the identified hazard.
 
 ---
+
 ## 6. Project Structure 
 
+```
 SIF-X-AI-POWERED-SAFETY-INTELLIGENCE-AND-EARLY-WARNING-SYSTEM/
-│
-├── frontend/       # React + Vite user interface
-├── backend/        # Spring Boot REST API and database layer
-├── ai-service/     # Python FastAPI AI/NLP service
-├── README.md       # Project documentation
-└── .gitignore      # Git ignored files
+├── frontend/          # React + Vite user interface
+├── backend/           # Spring Boot REST API and MongoDB Atlas repository
+├── ai-service/        # Python FastAPI AI/NLP inference service
+├── docker-compose.yml # Local MongoDB 7 container configuration
+├── README.md          # Project documentation
+└── .gitignore         # Git ignored files
+```
 
 ---
 
 ## 7. How to Run Locally
 
-### 1. Python AI Service (Port 8000)
-`ash
+### 1. MongoDB Database (Port 27017)
+Run the local MongoDB 7 instance via Docker Compose:
+```bash
+docker-compose up -d
+```
+Alternatively, configure `MONGODB_URI` in `backend/src/main/resources/application.properties` pointing to your MongoDB Atlas cluster.
+
+### 2. Python AI Service (Port 8000)
+```bash
 cd ai-service
 python main.py
-`
+```
 
-### 2. Spring Boot Backend (Port 8080)
-`ash
+### 3. Spring Boot Backend (Port 8080)
+```bash
 cd backend
 mvn spring-boot:run
-`
+```
 
-### 3. React Frontend (Port 5173)
-`ash
+### 4. React Frontend (Port 5173)
+```bash
 cd frontend
 npm run dev
-`
+```
 
-Open browser at: http://localhost:5173
+Open browser at: `http://localhost:5173`
 
 ---
 
-## 8. Decision Support Disclaimer
+## 8. MongoDB Atlas Production Setup (Render)
+
+1. **Cluster Creation**: Create an M0 free tier (or dedicated) cluster in MongoDB Atlas.
+2. **Dedicated User**: Create a database user with `readWrite` access restricted to the application database (e.g., `sifdb` or `sif_safety_db`). Use a strong, generated password.
+3. **URL Encoding**: If your database password contains special characters (`@`, `:`, `/`, `%`, `+`), ensure they are URL-encoded in the connection string.
+4. **Network Access**:
+   * Render free tier web services do not have static outbound IP addresses. In MongoDB Atlas, go to **Network Access** -> **IP Access List** and add `0.0.0.0/0` (Allow Access from Anywhere).
+   * Security is enforced via TLS encryption in transit and database username/password authentication.
+   * On paid Render plans with static outbound IPs, you can replace `0.0.0.0/0` with your dedicated outbound IP for tighter allowlisting.
+5. **Environment Variables on Render**:
+   * Set `MONGODB_URI` to your `mongodb+srv://...` connection string. Never commit connection strings containing passwords to Git.
+   * Set `AI_SERVICE_URL` to your deployed FastAPI web service URL on Render.
+   * Set `SEED_DEMO_DATA=false` in production to prevent mock benchmark cases from re-seeding.
+
+---
+
+## 9. Decision Support Disclaimer
 This system is an **early-warning and decision-support prototype**, NOT a system predicting guaranteed fatalities. All flagged precursor alerts require review by qualified HSE professionals.

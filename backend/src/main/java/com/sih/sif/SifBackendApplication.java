@@ -2,6 +2,7 @@ package com.sih.sif;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
  * SifBackendApplication.java
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 3. @ComponentScan: Tells Spring to look for other components, configurations, and services in the package.
  */
 @SpringBootApplication
+@EnableAsync
 public class SifBackendApplication {
 
 	public static void main(String[] args) {
