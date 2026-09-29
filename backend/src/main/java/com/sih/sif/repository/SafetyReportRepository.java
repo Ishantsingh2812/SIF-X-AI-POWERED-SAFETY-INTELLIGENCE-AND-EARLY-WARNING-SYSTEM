@@ -1,7 +1,7 @@
 package com.sih.sif.repository;
 
 import com.sih.sif.model.SafetyReport;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -16,7 +16,7 @@ import java.util.List;
  * the method names and deriving queries from them (Method Name Query Derivation).
  */
 @Repository
-public interface SafetyReportRepository extends JpaRepository<SafetyReport, Long> {
+public interface SafetyReportRepository extends MongoRepository<SafetyReport, Long> {
 
     /**
      * Finds reports matching any of the specified risk levels (e.g., ["CRITICAL", "HIGH"])

@@ -35,6 +35,7 @@ build/
 
 # Build outputs
 /target/
+/bin/
 /build/
 
 # IDE files
@@ -44,8 +45,6 @@ build/
 
 # Java / Spring Boot backend
 target/
-application.properties
-application.yml
 
 # Python AI-service
 __pycache__/
