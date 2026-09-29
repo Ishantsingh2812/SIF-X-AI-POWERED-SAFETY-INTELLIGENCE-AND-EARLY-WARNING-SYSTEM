@@ -1,27 +1,26 @@
 package com.sih.sif.model;
 
 import jakarta.persistence.*;
+import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.LocalDateTime;
 
 /**
  * SafetyReport.java
  *
- * JPA (Java Persistence API) Entity representing a safety incident or observation report
- * stored in the relational database (H2 in-memory DB in our case).
- *
- * Spring Data JPA maps this class to a database table named 'safety_reports', where each
- * instance of this class corresponds to one row in the table, and each field corresponds
- * to a column.
+ * Entity representing a safety incident or observation report.
+ * Supports both relational JPA tables (H2) and MongoDB collections (Mongo Atlas).
  */
 @Entity
 @Table(name = "safety_reports")
+@Document(collection = "safety_reports")
 public class SafetyReport {
 
     /**
-     * Unique identifier (Primary Key) for each safety report record.
-     * GenerationType.IDENTITY instructs the database (H2) to auto-increment this ID.
+     * Unique identifier for each safety report record.
+     * Mapped for both JPA (auto-increment IDENTITY) and MongoDB (@org.springframework.data.annotation.Id).
      */
     @Id
+    @org.springframework.data.annotation.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
