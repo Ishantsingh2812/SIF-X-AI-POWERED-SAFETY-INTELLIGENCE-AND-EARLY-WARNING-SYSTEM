@@ -30,15 +30,18 @@ class SafetyReportServiceTest {
     private SafetyReportRepository repository;
 
     @Mock
+    private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
+
+    @Mock
     private RestTemplate restTemplate;
 
     private SafetyReportService service;
 
     @BeforeEach
     void setUp() {
-        service = new SafetyReportService(repository);
-        ReflectionTestUtils.setField(service, "restTemplate", restTemplate);
+        service = new SafetyReportService(repository, mongoTemplate, restTemplate);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8000");
+        ReflectionTestUtils.setField(service, "seedDemoData", true);
     }
 
     @Test
@@ -60,13 +63,13 @@ class SafetyReportServiceTest {
                 .thenReturn(ResponseEntity.ok(body));
         when(repository.save(any(SafetyReport.class))).thenAnswer(invocation -> {
             SafetyReport report = invocation.getArgument(0);
-            report.setId(42L);
+            report.setId("rep-42");
             return report;
         });
 
         SafetyReportResponse response = service.analyzeAndSave(request);
 
-        assertEquals(42L, response.getId());
+        assertEquals("rep-42", response.getId());
         assertEquals("Worker fell", response.getReportText());
         assertTrue(response.getSifPrecursorDetected());
         assertEquals("CRITICAL", response.getRiskLevel());
@@ -101,19 +104,19 @@ class SafetyReportServiceTest {
         RuntimeException exception = assertThrows(RuntimeException.class,
                 () -> service.analyzeAndSave(request("Report", "Type", "Location")));
 
-        assertEquals("Empty response received from Python AI Service", exception.getMessage());
+        assertEquals("Empty response received from AI Service", exception.getMessage());
         verify(repository, never()).save(any());
     }
 
     @Test
     void getAllReportsMapsReportsWithDefaultDisclaimer() {
-        SafetyReport report = report(1L, "HIGH", "Fall", "[\"ladder\"]");
+        SafetyReport report = report("rep-1", "HIGH", "Fall", List.of("ladder"));
         when(repository.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(report));
 
         List<SafetyReportResponse> responses = service.getAllReports();
 
         assertEquals(1, responses.size());
-        assertEquals(1L, responses.get(0).getId());
+        assertEquals("rep-1", responses.get(0).getId());
         assertEquals(List.of("ladder"), responses.get(0).getDetectedFactors());
         assertEquals("Prototype Decision Support: Requires safety officer review.",
                 responses.get(0).getDecisionSupportDisclaimer());
@@ -122,7 +125,7 @@ class SafetyReportServiceTest {
     @Test
     void getHighRiskReportsQueriesHighAndCriticalLevels() {
         when(repository.findByRiskLevelInOrderByCreatedAtDesc(List.of("HIGH", "CRITICAL")))
-                .thenReturn(List.of(report(2L, "CRITICAL", "Toxic Gas", null)));
+                .thenReturn(List.of(report("rep-2", "CRITICAL", "Toxic Gas", null)));
 
         List<SafetyReportResponse> responses = service.getHighRiskReports();
 
@@ -133,17 +136,24 @@ class SafetyReportServiceTest {
 
     @Test
     void getDashboardStatsAggregatesCountsAndDistributions() {
-        SafetyReport first = report(1L, "HIGH", "Fall", null);
-        first.setSifPrecursorDetected(true);
-        SafetyReport second = report(2L, "HIGH", "Fall", null);
-        second.setSifPrecursorDetected(false);
-        SafetyReport third = report(3L, "CRITICAL", "Gas", null);
-        third.setSifPrecursorDetected(true);
         when(repository.count()).thenReturn(3L);
         when(repository.countBySifPrecursorDetectedTrue()).thenReturn(2L);
         when(repository.countByRiskLevel("HIGH")).thenReturn(2L);
         when(repository.countByRiskLevel("CRITICAL")).thenReturn(1L);
-        when(repository.findAll()).thenReturn(List.of(first, second, third));
+
+        org.bson.Document precDoc1 = new org.bson.Document("_id", "Fall").append("count", 2L);
+        org.bson.Document precDoc2 = new org.bson.Document("_id", "Gas").append("count", 1L);
+        org.springframework.data.mongodb.core.aggregation.AggregationResults<org.bson.Document> precResults =
+                new org.springframework.data.mongodb.core.aggregation.AggregationResults<>(List.of(precDoc1, precDoc2), new org.bson.Document());
+
+        org.bson.Document riskDoc1 = new org.bson.Document("_id", "HIGH").append("count", 2L);
+        org.bson.Document riskDoc2 = new org.bson.Document("_id", "CRITICAL").append("count", 1L);
+        org.springframework.data.mongodb.core.aggregation.AggregationResults<org.bson.Document> riskResults =
+                new org.springframework.data.mongodb.core.aggregation.AggregationResults<>(List.of(riskDoc1, riskDoc2), new org.bson.Document());
+
+        when(mongoTemplate.aggregate(any(org.springframework.data.mongodb.core.aggregation.Aggregation.class), eq("safety_reports"), eq(org.bson.Document.class)))
+                .thenReturn(precResults)
+                .thenReturn(riskResults);
 
         DashboardStatsResponse stats = service.getDashboardStats();
 
@@ -182,13 +192,13 @@ class SafetyReportServiceTest {
         return request;
     }
 
-    private SafetyReport report(Long id, String riskLevel, String precursorType, String detectedFactors) {
+    private SafetyReport report(String id, String riskLevel, String precursorType, List<String> detectedFactors) {
         SafetyReport report = new SafetyReport();
         report.setId(id);
         report.setReportText("Report " + id);
         report.setRiskLevel(riskLevel);
         report.setPrecursorType(precursorType);
-        report.setDetectedFactors(detectedFactors);
+        report.setDetectedFactors(detectedFactors != null ? detectedFactors : List.of());
         report.setCreatedAt(LocalDateTime.now());
         return report;
     }

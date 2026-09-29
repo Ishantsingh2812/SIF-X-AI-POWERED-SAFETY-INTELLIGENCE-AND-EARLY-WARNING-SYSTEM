@@ -3,27 +3,24 @@ package com.sih.sif.model;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class SafetyReportTest {
 
     @Test
-    void prePersistSetsCreatedAtWhenMissing() {
+    void defaultConstructorInitializesCreatedAt() {
         SafetyReport report = new SafetyReport();
-
-        report.prePersist();
-
         assertNotNull(report.getCreatedAt());
     }
 
     @Test
-    void prePersistPreservesExistingCreatedAt() {
+    void canSetAndGetCreatedAt() {
         SafetyReport report = new SafetyReport();
         LocalDateTime createdAt = LocalDateTime.of(2025, 1, 2, 3, 4);
         report.setCreatedAt(createdAt);
-
-        report.prePersist();
 
         assertEquals(createdAt, report.getCreatedAt());
     }
@@ -31,7 +28,7 @@ class SafetyReportTest {
     @Test
     void accessorsRoundTripEntityState() {
         SafetyReport report = new SafetyReport();
-        report.setId(9L);
+        report.setId("rep-9");
         report.setReportText("Text");
         report.setReportType("Near Miss");
         report.setLocation("Site");
@@ -40,13 +37,13 @@ class SafetyReportTest {
         report.setRiskScore(88.0);
         report.setRiskLevel("CRITICAL");
         report.setConfidence(0.9);
-        report.setDetectedFactors("[]");
-        report.setPotentialConsequences("[]");
-        report.setRecommendedActions("[]");
-        report.setTopTerms("[]");
-        report.setExplanation("[]");
+        report.setDetectedFactors(List.of("factor1"));
+        report.setPotentialConsequences(List.of("consequence1"));
+        report.setRecommendedActions(List.of("action1"));
+        report.setTopTerms(List.of(Map.of("term", "hazard")));
+        report.setExplanation(List.of("explanation1"));
 
-        assertEquals(9L, report.getId());
+        assertEquals("rep-9", report.getId());
         assertEquals("Text", report.getReportText());
         assertEquals("Near Miss", report.getReportType());
         assertEquals("Site", report.getLocation());
@@ -55,10 +52,10 @@ class SafetyReportTest {
         assertEquals(88.0, report.getRiskScore());
         assertEquals("CRITICAL", report.getRiskLevel());
         assertEquals(0.9, report.getConfidence());
-        assertEquals("[]", report.getDetectedFactors());
-        assertEquals("[]", report.getPotentialConsequences());
-        assertEquals("[]", report.getRecommendedActions());
-        assertEquals("[]", report.getTopTerms());
-        assertEquals("[]", report.getExplanation());
+        assertEquals(List.of("factor1"), report.getDetectedFactors());
+        assertEquals(List.of("consequence1"), report.getPotentialConsequences());
+        assertEquals(List.of("action1"), report.getRecommendedActions());
+        assertEquals(List.of(Map.of("term", "hazard")), report.getTopTerms());
+        assertEquals(List.of("explanation1"), report.getExplanation());
     }
 }

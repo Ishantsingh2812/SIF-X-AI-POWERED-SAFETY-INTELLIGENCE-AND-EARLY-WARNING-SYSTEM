@@ -40,6 +40,9 @@ public class SafetyReportController {
      */
     @PostMapping("/reports/analyze")
     public ResponseEntity<SafetyReportResponse> analyzeReport(@jakarta.validation.Valid @RequestBody AnalyzeReportRequest request) {
+        if (request == null || request.getReport() == null || request.getReport().trim().isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
         return ResponseEntity.ok(service.analyzeAndSave(request));
     }
 

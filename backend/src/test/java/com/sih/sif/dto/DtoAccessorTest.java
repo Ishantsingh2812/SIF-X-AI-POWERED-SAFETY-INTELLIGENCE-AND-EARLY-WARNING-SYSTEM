@@ -26,7 +26,7 @@ class DtoAccessorTest {
     void safetyReportResponseAccessorsRoundTripValues() {
         SafetyReportResponse response = new SafetyReportResponse();
         LocalDateTime createdAt = LocalDateTime.of(2025, 1, 2, 3, 4);
-        response.setId(1L);
+        response.setId("rep-1");
         response.setReportText("Report");
         response.setReportType("Near Miss");
         response.setLocation("Site");
@@ -43,7 +43,7 @@ class DtoAccessorTest {
         response.setCreatedAt(createdAt);
         response.setDecisionSupportDisclaimer("Review");
 
-        assertEquals(1L, response.getId());
+        assertEquals("rep-1", response.getId());
         assertEquals("Report", response.getReportText());
         assertEquals("Near Miss", response.getReportType());
         assertEquals("Site", response.getLocation());

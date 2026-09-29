@@ -56,17 +56,18 @@ class SafetyReportControllerTest {
 
     @Test
     void readEndpointsReturnServiceResults() {
-        List<SafetyReportResponse> reports = List.of(new SafetyReportResponse());
+        com.sih.sif.dto.PagedResponse<SafetyReportResponse> pagedResponse =
+                new com.sih.sif.dto.PagedResponse<>(List.of(new SafetyReportResponse()), 0, 20, 1, 1);
         DashboardStatsResponse stats = new DashboardStatsResponse();
-        when(service.getAllReports()).thenReturn(reports);
-        when(service.getHighRiskReports()).thenReturn(reports);
+        when(service.getReportsPaged(0, 20)).thenReturn(pagedResponse);
+        when(service.getHighRiskReportsPaged(0, 20)).thenReturn(pagedResponse);
         when(service.getDashboardStats()).thenReturn(stats);
 
-        assertSame(reports, controller.getAllReports().getBody());
-        assertSame(reports, controller.getHighRiskReports().getBody());
+        assertSame(pagedResponse, controller.getAllReports(0, 20).getBody());
+        assertSame(pagedResponse, controller.getHighRiskReports(0, 20).getBody());
         assertSame(stats, controller.getDashboardStats().getBody());
-        verify(service).getAllReports();
-        verify(service).getHighRiskReports();
+        verify(service).getReportsPaged(0, 20);
+        verify(service).getHighRiskReportsPaged(0, 20);
         verify(service).getDashboardStats();
     }
 }
