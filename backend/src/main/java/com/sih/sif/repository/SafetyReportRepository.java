@@ -16,7 +16,7 @@ import java.util.List;
  * the method names and deriving queries from them (Method Name Query Derivation).
  */
 @Repository
-public interface SafetyReportRepository extends MongoRepository<SafetyReport, Long> {
+public interface SafetyReportRepository extends MongoRepository<SafetyReport, String> {
 
     /**
      * Finds reports matching any of the specified risk levels (e.g., ["CRITICAL", "HIGH"])

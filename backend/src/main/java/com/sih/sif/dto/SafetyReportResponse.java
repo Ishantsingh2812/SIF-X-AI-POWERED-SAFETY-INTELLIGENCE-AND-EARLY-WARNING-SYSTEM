@@ -18,7 +18,7 @@ import java.util.Map;
  * 5. Mandatory AI Decision Support disclaimer emphasizing human oversight
  */
 public class SafetyReportResponse {
-    private Long id;
+    private String id;
     private String reportText;
     private String reportType;
     private String location;
@@ -45,8 +45,8 @@ public class SafetyReportResponse {
 
     public SafetyReportResponse() {}
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
 
     public String getReportText() { return reportText; }
     public void setReportText(String reportText) { this.reportText = reportText; }
