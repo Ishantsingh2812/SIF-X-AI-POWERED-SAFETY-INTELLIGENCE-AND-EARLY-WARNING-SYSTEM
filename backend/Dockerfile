@@ -21,4 +21,4 @@ USER appuser
 COPY --from=builder /workspace/target/*.jar app.jar
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "echo 'MongoDB URI variable:' ${SPRING_DATA_MONGODB_URI:+SET}; java -Djava.security.egd=file:/dev/./urandom -jar app.jar"]
+ENTRYPOINT ["sh", "-c", "echo 'MongoDB URI variable:' ${MONGODB_URI:+SET}; java -Djava.security.egd=file:/dev/./urandom -jar app.jar"]

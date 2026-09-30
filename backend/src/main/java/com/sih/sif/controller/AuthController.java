@@ -46,14 +46,29 @@ public class AuthController {
         this.tokenProvider = tokenProvider;
     }
 
-    @PostConstruct
-    public void seedDefaultAdmin() {
-        if (userRepository.count() == 0) {
-            log.info("No users found in database. Initializing default admin account: {}", adminUsername);
-            User admin = new User(adminUsername, passwordEncoder.encode(adminPassword), "ROLE_ADMIN");
-            userRepository.save(admin);
-        }
+@PostConstruct
+public void seedDefaultAdmin() {
+    User admin = userRepository.findByUsername(adminUsername).orElse(null);
+
+    if (admin == null) {
+        log.info("Admin user '{}' not found. Creating default admin.", adminUsername);
+
+        admin = new User(
+                adminUsername,
+                passwordEncoder.encode(adminPassword),
+                "ROLE_ADMIN"
+        );
+
+        userRepository.save(admin);
+    } else {
+        log.info("Admin user '{}' already exists. Updating configured password.", adminUsername);
+
+        admin.setPassword(passwordEncoder.encode(adminPassword));
+        admin.setRole("ROLE_ADMIN");
+
+        userRepository.save(admin);
     }
+}
 
     public static class LoginRequest {
         @NotBlank
