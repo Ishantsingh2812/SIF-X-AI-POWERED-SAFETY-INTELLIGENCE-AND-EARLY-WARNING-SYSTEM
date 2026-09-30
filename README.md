@@ -129,3 +129,20 @@ Open browser at: `http://localhost:5173`
 
 ## 9. Decision Support Disclaimer
 This system is an **early-warning and decision-support prototype**, NOT a system predicting guaranteed fatalities. All flagged precursor alerts require review by qualified HSE professionals.
+
+## 10. Production Deployment (Render + MongoDB Atlas)
+Cluster: create an M0 (free) or dedicated cluster in MongoDB Atlas.
+Dedicated user: readWrite only on the application database (e.g. sifdb), with a strong generated password.
+URL-encode special characters (@ : / % +) in the password within the connection string.
+Network access: Render's free tier has no static outbound IP, so add 0.0.0.0/0 under Network Access → IP Access List.
+Protection comes from TLS in transit plus username/password authentication.
+On paid Render plans with a static IP, replace 0.0.0.0/0 with that IP.
+Environment variables on Render:
+Variable	Value
+MONGODB_URI	mongodb+srv://... (never commit this to Git)
+AI_SERVICE_URL	URL of the deployed FastAPI service
+SEED_DEMO_DATA	false in production, to stop mock benchmark cases re-seeding
+
+⏱️ Render free-tier services sleep after inactivity. Open the live link a minute before your demo to wake all three services.
+
+https://sif-x-ai-powered-safety-intelligence-and-xldv.onrender.com
